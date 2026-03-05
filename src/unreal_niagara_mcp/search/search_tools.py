@@ -62,7 +62,10 @@ _SEARCH_SYSTEMS_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 results = []
@@ -134,7 +137,10 @@ _SEARCH_MODULES_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraScript"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraScript")]
+except Exception:
+    filt.class_names = ["NiagaraScript"]
 {folder_filter}
 assets = registry.get_assets(filt)
 results = []
@@ -205,7 +211,10 @@ _SEARCH_DI_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 di_class = "{di_class_name}"
@@ -322,7 +331,10 @@ _SEARCH_PARAM_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 param_name = "{parameter_name}"
@@ -409,7 +421,10 @@ _SEARCH_MATERIAL_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 mat_path = "{material_path}"

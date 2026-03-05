@@ -50,7 +50,10 @@ else:
     target_fp = get_module_fingerprint(target)
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
     filt = unreal.ARFilter()
-    filt.class_names = ["NiagaraSystem"]
+    try:
+        filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+    except Exception:
+        filt.class_names = ["NiagaraSystem"]
     assets = registry.get_assets(filt)
     threshold = {threshold}
     limit = {limit}
@@ -139,7 +142,10 @@ _USAGE_MAP_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 limit = {limit}
@@ -230,7 +236,10 @@ _INVENTORY_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 
@@ -353,7 +362,10 @@ _QUERY_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 assets = registry.get_assets(filt)
 results = []
 
@@ -622,7 +634,10 @@ _PARAM_CONFLICTS_SCRIPT = '''\
 import unreal, json
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 filt = unreal.ARFilter()
-filt.class_names = ["NiagaraSystem"]
+try:
+    filt.class_paths = [unreal.TopLevelAssetPath("/Script/Niagara", "NiagaraSystem")]
+except Exception:
+    filt.class_names = ["NiagaraSystem"]
 {folder_filter}
 assets = registry.get_assets(filt)
 
