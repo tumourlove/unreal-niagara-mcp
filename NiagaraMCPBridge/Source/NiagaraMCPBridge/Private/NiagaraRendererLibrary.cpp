@@ -80,11 +80,11 @@ UClass* UNiagaraMCPRendererLibrary::ResolveRendererClass(const FString& Renderer
 		FullName += TEXT("RendererProperties");
 	}
 
-	UClass* FoundClass = FindObject<UClass>(ANY_PACKAGE, *FullName);
+	UClass* FoundClass = FindFirstObject<UClass>(*FullName, EFindFirstObjectOptions::NativeFirst);
 	if (!FoundClass)
 	{
 		// Try without U prefix
-		FoundClass = FindObject<UClass>(ANY_PACKAGE, *FullName.Mid(1));
+		FoundClass = FindFirstObject<UClass>(*FullName.Mid(1), EFindFirstObjectOptions::NativeFirst);
 	}
 
 	if (!FoundClass)
@@ -169,8 +169,9 @@ int32 UNiagaraMCPRendererLibrary::AddRenderer(const FString& SystemPath, const F
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "AddRenderer", "Add Renderer"));
 	System->Modify();
 
+	FVersionedNiagaraEmitter EmitterInstance = Handle.GetInstance();
 	UNiagaraRendererProperties* NewRenderer = NewObject<UNiagaraRendererProperties>(
-		Handle.GetInstance().Emitter, RendererUClass, NAME_None, RF_Transactional);
+		EmitterInstance.Emitter, RendererUClass, NAME_None, RF_Transactional);
 
 	if (!NewRenderer)
 	{
@@ -179,7 +180,7 @@ int32 UNiagaraMCPRendererLibrary::AddRenderer(const FString& SystemPath, const F
 		return -1;
 	}
 
-	EmitterData->AddRenderer(NewRenderer, System);
+	EmitterInstance.Emitter->AddRenderer(NewRenderer, EmitterInstance.Version);
 
 	GEditor->EndTransaction();
 
@@ -210,10 +211,14 @@ bool UNiagaraMCPRendererLibrary::RemoveRenderer(const FString& SystemPath, const
 		return false;
 	}
 
+	int32 EmitterIdx = UNiagaraMCPSystemLibrary::FindEmitterHandleIndex(System, EmitterHandleId);
+	const FNiagaraEmitterHandle& Handle = System->GetEmitterHandles()[EmitterIdx];
+	FVersionedNiagaraEmitter EmitterInstance = Handle.GetInstance();
+
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "RemoveRenderer", "Remove Renderer"));
 	System->Modify();
 
-	EmitterData->RemoveRenderer(Renderer, System);
+	EmitterInstance.Emitter->RemoveRenderer(Renderer, EmitterInstance.Version);
 
 	GEditor->EndTransaction();
 
@@ -264,12 +269,10 @@ bool UNiagaraMCPRendererLibrary::SetRendererMaterial(const FString& SystemPath, 
 	}
 	else if (UNiagaraMeshRendererProperties* Mesh = Cast<UNiagaraMeshRendererProperties>(Renderer))
 	{
-		// Mesh renderer uses Meshes array with override materials
-		if (Mesh->Meshes.Num() > 0)
-		{
-			Mesh->Meshes[0].OverrideMaterials.SetNum(1);
-			Mesh->Meshes[0].OverrideMaterials[0].ExplicitMat = Material;
-		}
+		// Mesh renderer uses OverrideMaterials directly
+		Mesh->bOverrideMaterials = true;
+		Mesh->OverrideMaterials.SetNum(1);
+		Mesh->OverrideMaterials[0].ExplicitMat = Material;
 		bSuccess = true;
 	}
 	else if (UNiagaraRibbonRendererProperties* Ribbon = Cast<UNiagaraRibbonRendererProperties>(Renderer))

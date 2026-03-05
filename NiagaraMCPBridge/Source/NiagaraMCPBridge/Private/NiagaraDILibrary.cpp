@@ -32,25 +32,25 @@ FString UNiagaraMCPDILibrary::GetDataInterfaceFunctions(const FString& DIClassNa
 	}
 
 	// Try multiple name variations
-	UClass* DIClass = FindObject<UClass>(ANY_PACKAGE, *ClassName);
+	UClass* DIClass = FindFirstObject<UClass>(*ClassName, EFindFirstObjectOptions::NativeFirst);
 	if (!DIClass)
 	{
 		// Try without U prefix
-		DIClass = FindObject<UClass>(ANY_PACKAGE, *ClassName.Mid(1));
+		DIClass = FindFirstObject<UClass>(*ClassName.Mid(1), EFindFirstObjectOptions::NativeFirst);
 	}
 	if (!DIClass)
 	{
 		// Try the raw name as given
-		DIClass = FindObject<UClass>(ANY_PACKAGE, *DIClassName);
+		DIClass = FindFirstObject<UClass>(*DIClassName, EFindFirstObjectOptions::NativeFirst);
 	}
 	if (!DIClass)
 	{
 		// Try with UNiagara prefix
 		FString NiagaraPrefixed = TEXT("UNiagara") + DIClassName;
-		DIClass = FindObject<UClass>(ANY_PACKAGE, *NiagaraPrefixed);
+		DIClass = FindFirstObject<UClass>(*NiagaraPrefixed, EFindFirstObjectOptions::NativeFirst);
 		if (!DIClass)
 		{
-			DIClass = FindObject<UClass>(ANY_PACKAGE, *NiagaraPrefixed.Mid(1));
+			DIClass = FindFirstObject<UClass>(*NiagaraPrefixed.Mid(1), EFindFirstObjectOptions::NativeFirst);
 		}
 	}
 
@@ -77,7 +77,7 @@ FString UNiagaraMCPDILibrary::GetDataInterfaceFunctions(const FString& DIClassNa
 	for (const FNiagaraFunctionSignature& Sig : Signatures)
 	{
 		TSharedRef<FJsonObject> SigObj = MakeShared<FJsonObject>();
-		SigObj->SetStringField(TEXT("name"), Sig.Name);
+		SigObj->SetStringField(TEXT("name"), Sig.Name.ToString());
 
 		// Inputs
 		TArray<TSharedPtr<FJsonValue>> InputsArray;
@@ -92,7 +92,7 @@ FString UNiagaraMCPDILibrary::GetDataInterfaceFunctions(const FString& DIClassNa
 
 		// Outputs
 		TArray<TSharedPtr<FJsonValue>> OutputsArray;
-		for (const FNiagaraVariable& Output : Sig.Outputs)
+		for (const FNiagaraVariableBase& Output : Sig.Outputs)
 		{
 			TSharedRef<FJsonObject> OutputObj = MakeShared<FJsonObject>();
 			OutputObj->SetStringField(TEXT("name"), Output.GetName().ToString());
@@ -108,9 +108,10 @@ FString UNiagaraMCPDILibrary::GetDataInterfaceFunctions(const FString& DIClassNa
 		SigObj->SetBoolField(TEXT("supports_gpu"), Sig.bSupportsGPU);
 		SigObj->SetBoolField(TEXT("supports_cpu"), Sig.bSupportsCPU);
 
-		if (!Sig.Description.IsEmpty())
+		FText SigDescription = Sig.GetDescription();
+		if (!SigDescription.IsEmpty())
 		{
-			SigObj->SetStringField(TEXT("description"), Sig.Description);
+			SigObj->SetStringField(TEXT("description"), SigDescription.ToString());
 		}
 
 		JsonArray.Add(MakeShared<FJsonValueObject>(SigObj));
