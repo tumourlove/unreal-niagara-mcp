@@ -77,6 +77,230 @@ class TestCreateNiagaraSystem:
 
 
 # ---------------------------------------------------------------------------
+# create_niagara_emitter
+# ---------------------------------------------------------------------------
+
+
+class TestCreateNiagaraEmitter:
+
+    def test_creates_emitter(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_emitter
+
+        mock_data = {"asset_path": "/Game/VFX/NE_Sparks"}
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.search.search_tools._get_bridge", return_value=mock_bridge):
+            result = create_niagara_emitter("/Game/VFX/NE_Sparks")
+
+        assert "Created Niagara Emitter" in result
+        assert "/Game/VFX/NE_Sparks" in result
+        assert "CPU" in result
+        assert "unsaved" in result
+
+    def test_creates_from_template(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_emitter
+
+        mock_data = {"asset_path": "/Game/VFX/NE_FromTemplate"}
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.search.search_tools._get_bridge", return_value=mock_bridge):
+            result = create_niagara_emitter("/Game/VFX/NE_FromTemplate", template_path="/Niagara/Templates/SimpleEmitter")
+
+        assert "Template: /Niagara/Templates/SimpleEmitter" in result
+
+    def test_gpu_sim_target(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_emitter
+
+        mock_data = {"asset_path": "/Game/VFX/NE_GPU"}
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.search.search_tools._get_bridge", return_value=mock_bridge):
+            result = create_niagara_emitter("/Game/VFX/NE_GPU", sim_target="gpu")
+
+        assert "GPU" in result
+
+    def test_invalid_sim_target(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_emitter
+
+        result = create_niagara_emitter("/Game/VFX/NE_Bad", sim_target="invalid")
+        assert "Error" in result
+
+    def test_handles_error(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_emitter
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(
+            {"error": True, "message": "Failed to create"}
+        )
+
+        with patch("unreal_niagara_mcp.search.search_tools._get_bridge", return_value=mock_bridge):
+            result = create_niagara_emitter("/Game/VFX/NE_Fail")
+
+        assert "Error" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_emitter
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        with patch("unreal_niagara_mcp.search.search_tools._get_bridge", side_effect=EditorNotRunning("No editor")):
+            result = create_niagara_emitter("/Game/VFX/NE_New")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# create_niagara_module
+# ---------------------------------------------------------------------------
+
+
+class TestCreateNiagaraModule:
+
+    def test_creates_module_with_hlsl(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_module
+
+        mock_data = {"asset_path": "/Game/VFX/Modules/MyModule"}
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", return_value=mock_data):
+            result = create_niagara_module(
+                "/Game/VFX/Modules/MyModule",
+                inputs='[{"name":"Speed","type":"float","default":"1.0"}]',
+                outputs='[{"name":"Force","type":"float3"}]',
+                hlsl_code="float3 Force = float3(0,0,Speed);",
+            )
+
+        assert "Created Niagara Module" in result
+        assert "/Game/VFX/Modules/MyModule" in result
+        assert "Inputs: 1" in result
+        assert "Outputs: 1" in result
+        assert "unsaved" in result
+
+    def test_creates_module_auto_generated(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_module
+
+        mock_data = {"asset_path": "/Game/VFX/Modules/AutoModule"}
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", return_value=mock_data):
+            result = create_niagara_module(
+                "/Game/VFX/Modules/AutoModule",
+                description="Gravity force",
+            )
+
+        assert "Created Niagara Module" in result
+
+    def test_invalid_inputs_json(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_module
+
+        result = create_niagara_module("/Game/VFX/Modules/Bad", inputs="not json")
+        assert "Error" in result
+
+    def test_invalid_outputs_json(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_module
+
+        result = create_niagara_module("/Game/VFX/Modules/Bad", outputs="not json")
+        assert "Error" in result
+
+    def test_handles_error(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_module
+
+        mock_data = {"error": True, "message": "HLSL compilation failed"}
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", return_value=mock_data):
+            result = create_niagara_module("/Game/VFX/Modules/Bad", hlsl_code="invalid;")
+
+        assert "Error" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_module
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", side_effect=EditorNotRunning("No editor")):
+            result = create_niagara_module("/Game/VFX/Modules/M", hlsl_code="x;")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# create_niagara_function
+# ---------------------------------------------------------------------------
+
+
+class TestCreateNiagaraFunction:
+
+    def test_creates_function(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_function
+
+        mock_data = {"asset_path": "/Game/VFX/Functions/MyFunc"}
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", return_value=mock_data):
+            result = create_niagara_function(
+                "/Game/VFX/Functions/MyFunc",
+                inputs='[{"name":"Value","type":"float"}]',
+                outputs='[{"name":"Result","type":"float"}]',
+                hlsl_code="float Result = Value * 2.0;",
+            )
+
+        assert "Created Niagara Function" in result
+        assert "/Game/VFX/Functions/MyFunc" in result
+        assert "Inputs: 1" in result
+        assert "Outputs: 1" in result
+        assert "unsaved" in result
+
+    def test_invalid_inputs_json(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_function
+
+        result = create_niagara_function(
+            "/Game/VFX/Functions/Bad",
+            inputs="not json",
+            outputs='[{"name":"R","type":"float"}]',
+            hlsl_code="x;",
+        )
+        assert "Error" in result
+
+    def test_invalid_outputs_json(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_function
+
+        result = create_niagara_function(
+            "/Game/VFX/Functions/Bad",
+            inputs='[{"name":"V","type":"float"}]',
+            outputs="not json",
+            hlsl_code="x;",
+        )
+        assert "Error" in result
+
+    def test_handles_error(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_function
+
+        mock_data = {"error": True, "message": "Failed"}
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", return_value=mock_data):
+            result = create_niagara_function(
+                "/Game/VFX/Functions/Bad",
+                inputs='[{"name":"V","type":"float"}]',
+                outputs='[{"name":"R","type":"float"}]',
+                hlsl_code="bad;",
+            )
+
+        assert "Error" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.creation.creation_tools import create_niagara_function
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        with patch("unreal_niagara_mcp.creation.creation_tools._call_plugin", side_effect=EditorNotRunning("No editor")):
+            result = create_niagara_function(
+                "/Game/VFX/Functions/F",
+                inputs='[{"name":"V","type":"float"}]',
+                outputs='[{"name":"R","type":"float"}]',
+                hlsl_code="float R = V;",
+            )
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
 # duplicate_niagara_system
 # ---------------------------------------------------------------------------
 
