@@ -11,6 +11,7 @@
 #include "NiagaraGraph.h"
 #include "NiagaraNodeOutput.h"
 #include "NiagaraNodeFunctionCall.h"
+#include "NiagaraNodeCustomHlsl.h"
 #include "NiagaraNodeInput.h"
 #include "NiagaraDataInterface.h"
 #include "NiagaraConstants.h"
@@ -253,7 +254,8 @@ FString UNiagaraMCPModuleLibrary::GetOrderedModules(const FString& SystemPath, c
 		ModuleObj->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString());
 		ModuleObj->SetStringField(TEXT("function_name"), Node->GetFunctionName());
 		ModuleObj->SetNumberField(TEXT("index"), i);
-		ModuleObj->SetBoolField(TEXT("enabled"), FNiagaraStackGraphUtilities::GetModuleIsEnabled(*Node));
+		TOptional<bool> bModEnabled = FNiagaraStackGraphUtilities::GetModuleIsEnabled(*Node);
+		ModuleObj->SetBoolField(TEXT("enabled"), bModEnabled.IsSet() ? bModEnabled.GetValue() : true);
 
 		// Script reference
 		if (Node->FunctionScript)
@@ -288,7 +290,8 @@ FString UNiagaraMCPModuleLibrary::GetModuleInputs(const FString& SystemPath, con
 
 	// Get the function inputs using stack graph utilities
 	TArray<FNiagaraVariable> Inputs;
-	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*ModuleNode, Inputs);
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*ModuleNode, Inputs,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly, false);
 
 	TArray<TSharedPtr<FJsonValue>> JsonArray;
 	for (const FNiagaraVariable& Input : Inputs)
@@ -299,8 +302,10 @@ FString UNiagaraMCPModuleLibrary::GetModuleInputs(const FString& SystemPath, con
 
 		// Check for linked/bound inputs
 		// Read the override pin value if available
-		const UEdGraphPin* OverridePin = FNiagaraStackGraphUtilities::GetStackFunctionInputOverridePin(
-			*ModuleNode, FNiagaraParameterHandle(Input.GetName()));
+		FNiagaraParameterHandle AliasedHandle = FNiagaraParameterHandle::CreateAliasedModuleParameterHandle(
+			FNiagaraParameterHandle(Input.GetName()), ModuleNode);
+		UEdGraphPin* OverridePin = FNiagaraStackGraphUtilities::GetStackFunctionInputOverridePin(
+			*ModuleNode, AliasedHandle);
 
 		if (OverridePin)
 		{
@@ -625,10 +630,24 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputValue(const FString& SystemPath, co
 		return false;
 	}
 
-	// Find the override pin for this input
-	FNiagaraParameterHandle ParamHandle(FName(*InputName));
-	const UEdGraphPin* OverridePin = FNiagaraStackGraphUtilities::GetStackFunctionInputOverridePin(
-		*ModuleNode, ParamHandle);
+	// Find the matching input variable to get its type
+	TArray<FNiagaraVariable> Inputs;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*ModuleNode, Inputs,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly, false);
+
+	FNiagaraTypeDefinition InputType = FNiagaraTypeDefinition::GetFloatDef();
+	for (const FNiagaraVariable& Input : Inputs)
+	{
+		if (Input.GetName() == FName(*InputName))
+		{
+			InputType = Input.GetType();
+			break;
+		}
+	}
+
+	// Alias the handle for override pin lookup
+	FNiagaraParameterHandle AliasedHandle = FNiagaraParameterHandle::CreateAliasedModuleParameterHandle(
+		FNiagaraParameterHandle(FName(*InputName)), ModuleNode);
 
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "SetModuleInput", "Set Module Input Value"));
 	System->Modify();
@@ -643,17 +662,9 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputValue(const FString& SystemPath, co
 		return false;
 	}
 
-	// Get or create override pin (mutable access)
-	UEdGraphPin* MutableOverridePin = FNiagaraStackGraphUtilities::GetOrCreateStackFunctionInputOverridePin(
-		*ModuleNode, ParamHandle);
-
-	if (!MutableOverridePin)
-	{
-		UE_LOG(LogNiagaraMCPModule, Error, TEXT("SetModuleInputValue: could not get/create override pin for '%s'"),
-			*InputName);
-		GEditor->EndTransaction();
-		return false;
-	}
+	// Get or create override pin (returns ref)
+	UEdGraphPin& MutableOverridePin = FNiagaraStackGraphUtilities::GetOrCreateStackFunctionInputOverridePin(
+		*ModuleNode, AliasedHandle, InputType, FGuid(), FGuid());
 
 	// Set the pin default value from JSON
 	// The pin default value is a string representation
@@ -716,7 +727,7 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputValue(const FString& SystemPath, co
 		ValueStr = ValueJson;
 	}
 
-	MutableOverridePin->DefaultValue = ValueStr;
+	MutableOverridePin.DefaultValue = ValueStr;
 
 	GEditor->EndTransaction();
 
@@ -746,20 +757,46 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputBinding(const FString& SystemPath, 
 		return false;
 	}
 
+	// Find the matching input variable to get its type
+	TArray<FNiagaraVariable> Inputs;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*ModuleNode, Inputs,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly, false);
+
+	FNiagaraTypeDefinition InputType = FNiagaraTypeDefinition::GetFloatDef();
+	for (const FNiagaraVariable& Input : Inputs)
+	{
+		if (Input.GetName() == FName(*InputName))
+		{
+			InputType = Input.GetType();
+			break;
+		}
+	}
+
+	// Alias the handle for override pin lookup
+	FNiagaraParameterHandle AliasedHandle = FNiagaraParameterHandle::CreateAliasedModuleParameterHandle(
+		FNiagaraParameterHandle(FName(*InputName)), ModuleNode);
+
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "SetModuleBinding", "Set Module Input Binding"));
 	System->Modify();
 
-	// Create a parameter handle for the input
-	FNiagaraParameterHandle InputHandle(FName(*InputName));
+	// Get or create the override pin
+	UEdGraphPin& OverridePin = FNiagaraStackGraphUtilities::GetOrCreateStackFunctionInputOverridePin(
+		*ModuleNode, AliasedHandle, InputType, FGuid(), FGuid());
 
 	// Create the linked parameter variable
-	FNiagaraVariable LinkedParam;
-	LinkedParam.SetName(FName(*BindingPath));
-	// The type will be resolved by the stack graph utilities based on context
+	FNiagaraVariable LinkedParam(InputType, FName(*BindingPath));
 
-	// Use the stack graph utility to set the linked value
-	FNiagaraStackGraphUtilities::SetLinkedValueHandleForFunctionInput(
-		*ModuleNode, InputHandle, FNiagaraParameterHandle(FName(*BindingPath)));
+	// Get known parameters for context
+	UNiagaraGraph* Graph = ModuleNode->GetNiagaraGraph();
+	TSet<FNiagaraVariableBase> KnownParameters;
+	if (Graph)
+	{
+		FNiagaraStackGraphUtilities::GetParametersForContext(Graph, *System, KnownParameters);
+	}
+
+	// Use the stack graph utility to set the linked parameter value
+	FNiagaraStackGraphUtilities::SetLinkedParameterValueForFunctionInput(
+		OverridePin, LinkedParam, KnownParameters);
 
 	GEditor->EndTransaction();
 
@@ -801,12 +838,12 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputDI(const FString& SystemPath, const
 		// Try common patterns
 	}
 
-	UClass* DIUClass = FindObject<UClass>(ANY_PACKAGE, *FullClassName);
+	UClass* DIUClass = FindFirstObject<UClass>(*FullClassName, EFindFirstObjectOptions::NativeFirst);
 	if (!DIUClass)
 	{
 		// Try without U prefix
 		FString WithoutU = FullClassName.Mid(1);
-		DIUClass = FindObject<UClass>(ANY_PACKAGE, *WithoutU);
+		DIUClass = FindFirstObject<UClass>(*WithoutU, EFindFirstObjectOptions::NativeFirst);
 	}
 	if (!DIUClass)
 	{
@@ -814,20 +851,39 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputDI(const FString& SystemPath, const
 		return false;
 	}
 
+	// Find the matching input variable to get its type
+	TArray<FNiagaraVariable> Inputs;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*ModuleNode, Inputs,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly, false);
+
+	FNiagaraTypeDefinition InputType(DIUClass);
+	for (const FNiagaraVariable& Input : Inputs)
+	{
+		if (Input.GetName() == FName(*InputName))
+		{
+			InputType = Input.GetType();
+			break;
+		}
+	}
+
+	// Alias the handle for override pin lookup
+	FNiagaraParameterHandle AliasedHandle = FNiagaraParameterHandle::CreateAliasedModuleParameterHandle(
+		FNiagaraParameterHandle(FName(*InputName)), ModuleNode);
+
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "SetModuleInputDI", "Set Module Input Data Interface"));
 	System->Modify();
 
-	// Create DI instance
-	UNiagaraDataInterface* DIInstance = NewObject<UNiagaraDataInterface>(ModuleNode, DIUClass);
-	if (!DIInstance)
-	{
-		UE_LOG(LogNiagaraMCPModule, Error, TEXT("SetModuleInputDI: failed to create DI instance"));
-		GEditor->EndTransaction();
-		return false;
-	}
+	// Get or create the override pin
+	UEdGraphPin& OverridePin = FNiagaraStackGraphUtilities::GetOrCreateStackFunctionInputOverridePin(
+		*ModuleNode, AliasedHandle, InputType, FGuid(), FGuid());
+
+	// SetDataInterfaceValueForFunctionInput creates the DI for us
+	UNiagaraDataInterface* DIInstance = nullptr;
+	FNiagaraStackGraphUtilities::SetDataInterfaceValueForFunctionInput(
+		OverridePin, DIUClass, InputName, DIInstance);
 
 	// Apply configuration from JSON if provided
-	if (!DIConfigJson.IsEmpty())
+	if (DIInstance && !DIConfigJson.IsEmpty())
 	{
 		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(DIConfigJson);
 		TSharedPtr<FJsonObject> ConfigObj;
@@ -860,11 +916,6 @@ bool UNiagaraMCPModuleLibrary::SetModuleInputDI(const FString& SystemPath, const
 			}
 		}
 	}
-
-	// Set the DI on the module input
-	FNiagaraParameterHandle InputHandle(FName(*InputName));
-	FNiagaraStackGraphUtilities::SetDataInterfaceValueForFunctionInput(
-		*ModuleNode, InputHandle, DIInstance);
 
 	GEditor->EndTransaction();
 
@@ -944,15 +995,41 @@ static FString CreateScriptFromHLSLInternal(const FString& SavePath, const FStri
 	OutputNode->SetUsage(ScriptUsage);
 	Source->NodeGraph->AddNode(OutputNode, false, false);
 
-	// Create a Custom HLSL function call node
-	UNiagaraNodeFunctionCall* HLSLNode = NewObject<UNiagaraNodeFunctionCall>(Source->NodeGraph);
+	// Create a Custom HLSL node
+	UNiagaraNodeCustomHlsl* HLSLNode = NewObject<UNiagaraNodeCustomHlsl>(Source->NodeGraph);
 	Source->NodeGraph->AddNode(HLSLNode, false, false);
 
 	// Set the custom HLSL code
 	HLSLNode->SetCustomHlsl(HLSLCode);
+	HLSLNode->ScriptUsage = ScriptUsage;
 
-	// Add input and output pins based on JSON definitions
-	// Inputs: [{"name": "...", "type": "float"}, ...]
+	// Helper lambda to resolve type string to FNiagaraTypeDefinition
+	auto ResolveType = [](const FString& TypeLower) -> FNiagaraTypeDefinition
+	{
+		if (TypeLower == TEXT("float"))
+			return FNiagaraTypeDefinition::GetFloatDef();
+		if (TypeLower == TEXT("int") || TypeLower == TEXT("int32"))
+			return FNiagaraTypeDefinition::GetIntDef();
+		if (TypeLower == TEXT("bool"))
+			return FNiagaraTypeDefinition::GetBoolDef();
+		if (TypeLower == TEXT("vec2") || TypeLower == TEXT("vector2d"))
+			return FNiagaraTypeDefinition::GetVec2Def();
+		if (TypeLower == TEXT("vec3") || TypeLower == TEXT("vector"))
+			return FNiagaraTypeDefinition::GetVec3Def();
+		if (TypeLower == TEXT("vec4") || TypeLower == TEXT("vector4"))
+			return FNiagaraTypeDefinition::GetVec4Def();
+		if (TypeLower == TEXT("color") || TypeLower == TEXT("linearcolor"))
+			return FNiagaraTypeDefinition::GetColorDef();
+		if (TypeLower == TEXT("position"))
+			return FNiagaraTypeDefinition::GetPositionDef();
+		if (TypeLower == TEXT("quat") || TypeLower == TEXT("quaternion"))
+			return FNiagaraTypeDefinition::GetQuatDef();
+		if (TypeLower == TEXT("matrix") || TypeLower == TEXT("matrix4"))
+			return FNiagaraTypeDefinition::GetMatrix4Def();
+		return FNiagaraTypeDefinition::GetFloatDef();
+	};
+
+	// Add input pins via RequestNewTypedPin
 	for (const TSharedPtr<FJsonValue>& InputVal : InputsArray)
 	{
 		TSharedPtr<FJsonObject> InputObj = InputVal->AsObject();
@@ -962,38 +1039,12 @@ static FString CreateScriptFromHLSLInternal(const FString& SavePath, const FStri
 		}
 		FString Name = InputObj->GetStringField(TEXT("name"));
 		FString Type = InputObj->GetStringField(TEXT("type"));
+		FNiagaraTypeDefinition TypeDef = ResolveType(Type.ToLower());
 
-		FNiagaraVariable Var;
-		Var.SetName(FName(*Name));
-
-		// Resolve type
-		FString TypeLower = Type.ToLower();
-		if (TypeLower == TEXT("float"))
-			Var.SetType(FNiagaraTypeDefinition::GetFloatDef());
-		else if (TypeLower == TEXT("int") || TypeLower == TEXT("int32"))
-			Var.SetType(FNiagaraTypeDefinition::GetIntDef());
-		else if (TypeLower == TEXT("bool"))
-			Var.SetType(FNiagaraTypeDefinition::GetBoolDef());
-		else if (TypeLower == TEXT("vec2") || TypeLower == TEXT("vector2d"))
-			Var.SetType(FNiagaraTypeDefinition::GetVec2Def());
-		else if (TypeLower == TEXT("vec3") || TypeLower == TEXT("vector"))
-			Var.SetType(FNiagaraTypeDefinition::GetVec3Def());
-		else if (TypeLower == TEXT("vec4") || TypeLower == TEXT("vector4"))
-			Var.SetType(FNiagaraTypeDefinition::GetVec4Def());
-		else if (TypeLower == TEXT("color") || TypeLower == TEXT("linearcolor"))
-			Var.SetType(FNiagaraTypeDefinition::GetColorDef());
-		else if (TypeLower == TEXT("position"))
-			Var.SetType(FNiagaraTypeDefinition::GetPositionDef());
-		else if (TypeLower == TEXT("quat") || TypeLower == TEXT("quaternion"))
-			Var.SetType(FNiagaraTypeDefinition::GetQuatDef());
-		else if (TypeLower == TEXT("matrix") || TypeLower == TEXT("matrix4"))
-			Var.SetType(FNiagaraTypeDefinition::GetMatrix4Def());
-		else
-			Var.SetType(FNiagaraTypeDefinition::GetFloatDef()); // Default
-
-		HLSLNode->AddCustomHlslInput(Var);
+		HLSLNode->RequestNewTypedPin(EGPD_Input, TypeDef, FName(*Name));
 	}
 
+	// Add output pins via RequestNewTypedPin
 	for (const TSharedPtr<FJsonValue>& OutputVal : OutputsArray)
 	{
 		TSharedPtr<FJsonObject> OutputObj = OutputVal->AsObject();
@@ -1003,31 +1054,9 @@ static FString CreateScriptFromHLSLInternal(const FString& SavePath, const FStri
 		}
 		FString Name = OutputObj->GetStringField(TEXT("name"));
 		FString Type = OutputObj->GetStringField(TEXT("type"));
+		FNiagaraTypeDefinition TypeDef = ResolveType(Type.ToLower());
 
-		FNiagaraVariable Var;
-		Var.SetName(FName(*Name));
-
-		FString TypeLower = Type.ToLower();
-		if (TypeLower == TEXT("float"))
-			Var.SetType(FNiagaraTypeDefinition::GetFloatDef());
-		else if (TypeLower == TEXT("int") || TypeLower == TEXT("int32"))
-			Var.SetType(FNiagaraTypeDefinition::GetIntDef());
-		else if (TypeLower == TEXT("bool"))
-			Var.SetType(FNiagaraTypeDefinition::GetBoolDef());
-		else if (TypeLower == TEXT("vec2") || TypeLower == TEXT("vector2d"))
-			Var.SetType(FNiagaraTypeDefinition::GetVec2Def());
-		else if (TypeLower == TEXT("vec3") || TypeLower == TEXT("vector"))
-			Var.SetType(FNiagaraTypeDefinition::GetVec3Def());
-		else if (TypeLower == TEXT("vec4") || TypeLower == TEXT("vector4"))
-			Var.SetType(FNiagaraTypeDefinition::GetVec4Def());
-		else if (TypeLower == TEXT("color") || TypeLower == TEXT("linearcolor"))
-			Var.SetType(FNiagaraTypeDefinition::GetColorDef());
-		else if (TypeLower == TEXT("position"))
-			Var.SetType(FNiagaraTypeDefinition::GetPositionDef());
-		else
-			Var.SetType(FNiagaraTypeDefinition::GetFloatDef());
-
-		HLSLNode->AddCustomHlslOutput(Var);
+		HLSLNode->RequestNewTypedPin(EGPD_Output, TypeDef, FName(*Name));
 	}
 
 	// Wire the HLSL node outputs to the output node inputs
