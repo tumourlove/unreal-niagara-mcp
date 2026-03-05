@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Niagara MCP Bridge",
+	"Description": "Blueprint-callable wrappers for Niagara editing APIs, enabling MCP server integration for AI-assisted VFX authoring.",
+	"Category": "Editor",
+	"CreatedBy": "NiagaraMCP",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Modules": [
+		{
+			"Name": "NiagaraMCPBridge",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "Niagara",
+			"Enabled": true
+		}
+	]
+}
