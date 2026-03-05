@@ -514,17 +514,62 @@ bool UNiagaraMCPModuleLibrary::MoveModule(const FString& SystemPath, const FStri
 		return false;
 	}
 
+	// Get the current ordered modules to find this module's position
+	TArray<UNiagaraNodeFunctionCall*> ModuleNodes;
+	FNiagaraStackGraphUtilities::GetOrderedModuleNodes(*OutputNode, ModuleNodes);
+
+	int32 CurrentIndex = ModuleNodes.IndexOfByKey(ModuleNode);
+	if (CurrentIndex == INDEX_NONE)
+	{
+		UE_LOG(LogNiagaraMCPModule, Error, TEXT("MoveModule: module node not found in ordered list"));
+		return false;
+	}
+
+	if (NewIndex == CurrentIndex)
+	{
+		// Already at the target position
+		return true;
+	}
+
+	// Clamp NewIndex to valid range
+	NewIndex = FMath::Clamp(NewIndex, 0, ModuleNodes.Num() - 1);
+
+	// Get the module script reference before removal
+	UNiagaraScript* ModuleScript = ModuleNode->FunctionScript;
+	if (!ModuleScript)
+	{
+		UE_LOG(LogNiagaraMCPModule, Error, TEXT("MoveModule: module node has no script reference"));
+		return false;
+	}
+
+	// Find the emitter GUID for RemoveModuleFromStack
+	FGuid EmitterGuid;
+	int32 EmitterIndex = UNiagaraMCPSystemLibrary::FindEmitterHandleIndex(System, EmitterHandleId);
+	if (EmitterIndex != INDEX_NONE)
+	{
+		EmitterGuid = System->GetEmitterHandles()[EmitterIndex].GetId();
+	}
+
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "MoveModule", "Move Module"));
 	System->Modify();
 
-	FNiagaraStackGraphUtilities::MoveModule(*System->GetSystemSpawnScript(), *ModuleNode, *OutputNode,
-		FNiagaraStackGraphUtilities::ENiagaraMoveModuleDirection::Up, NewIndex);
+	// Step 1: Remove the module from the stack
+	FNiagaraStackGraphUtilities::RemoveModuleFromStack(*System, EmitterGuid, *ModuleNode);
+
+	// Step 2: Re-add at the new position
+	UNiagaraNodeFunctionCall* NewNode = FNiagaraStackGraphUtilities::AddScriptModuleToStack(ModuleScript, *OutputNode, NewIndex);
 
 	GEditor->EndTransaction();
 
+	if (!NewNode)
+	{
+		UE_LOG(LogNiagaraMCPModule, Error, TEXT("MoveModule: failed to re-add module at new index %d"), NewIndex);
+		return false;
+	}
+
 	System->RequestCompile(false);
 
-	UE_LOG(LogNiagaraMCPModule, Log, TEXT("Moved module '%s' to index %d"), *ModuleNodeGuid, NewIndex);
+	UE_LOG(LogNiagaraMCPModule, Log, TEXT("Moved module '%s' from index %d to index %d"), *ModuleNodeGuid, CurrentIndex, NewIndex);
 	return true;
 }
 

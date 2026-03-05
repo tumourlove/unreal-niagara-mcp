@@ -270,3 +270,476 @@ class TestServerHelpers:
         b1 = _get_bridge()
         b2 = _get_bridge()
         assert b1 is b2
+
+
+# ---------------------------------------------------------------------------
+# get_niagara_renderers
+# ---------------------------------------------------------------------------
+
+
+class TestGetNiagaraRenderers:
+
+    def test_returns_formatted_renderer_list(self):
+        from unreal_niagara_mcp.inspection.renderer_tools import get_niagara_renderers
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [
+                {
+                    "name": "Flames",
+                    "renderers": [
+                        {
+                            "index": 0,
+                            "class": "NiagaraSpriteRendererProperties",
+                            "is_enabled": True,
+                            "sort_order_hint": 0,
+                            "material": "/Game/Materials/M_Fire",
+                            "bindings": [
+                                {"name": "position_binding", "bound_to": "Particles.Position"},
+                                {"name": "color_binding", "bound_to": "Particles.Color"},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.renderer_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_renderers("/Game/VFX/NS_Fire")
+
+        assert "NiagaraSpriteRendererProperties" in result
+        assert "Enabled" in result
+        assert "Sort Order: 0" in result
+        assert "M_Fire" in result
+        assert "position_binding -> Particles.Position" in result
+        assert "color_binding -> Particles.Color" in result
+
+    def test_handles_emitter_filter(self):
+        from unreal_niagara_mcp.inspection.renderer_tools import get_niagara_renderers
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [
+                {"name": "Sparks", "renderers": [{"index": 0, "class": "NiagaraSpriteRendererProperties", "is_enabled": True}]},
+            ],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.renderer_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_renderers("/Game/VFX/NS_Fire", emitter_name="Sparks")
+
+        assert "Sparks" in result
+
+    def test_handles_no_renderers(self):
+        from unreal_niagara_mcp.inspection.renderer_tools import get_niagara_renderers
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [{"name": "Empty", "renderers": []}],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.renderer_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_renderers("/Game/VFX/NS_Fire")
+
+        assert "no renderers" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.inspection.renderer_tools import get_niagara_renderers
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.side_effect = EditorNotRunning("No editor")
+
+        with patch("unreal_niagara_mcp.inspection.renderer_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_renderers("/Game/VFX/NS_Fire")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# get_niagara_modules
+# ---------------------------------------------------------------------------
+
+
+class TestGetNiagaraModules:
+
+    def test_returns_formatted_module_tree(self):
+        from unreal_niagara_mcp.inspection.module_tools import get_niagara_modules
+
+        mock_data = {
+            "emitters": [
+                {
+                    "name": "Flames",
+                    "stages": {
+                        "ParticleSpawn": [
+                            {"index": 0, "name": "Initialize Particle", "is_enabled": True, "guid": "abc-123"},
+                        ],
+                        "ParticleUpdate": [
+                            {"index": 0, "name": "Gravity Force", "is_enabled": True, "guid": "def-456"},
+                            {"index": 1, "name": "Drag", "is_enabled": False, "guid": "ghi-789"},
+                        ],
+                    },
+                },
+            ],
+        }
+
+        mock_bridge = MagicMock()
+        with patch("unreal_niagara_mcp.inspection.module_tools._call_plugin", return_value=mock_data):
+            result = get_niagara_modules("/Game/VFX/NS_Fire")
+
+        assert "Flames" in result
+        assert "ParticleSpawn" in result
+        assert "Initialize Particle" in result
+        assert "Gravity Force" in result
+        assert "[DISABLED]" in result
+        assert "abc-123" in result
+
+    def test_handles_no_modules(self):
+        from unreal_niagara_mcp.inspection.module_tools import get_niagara_modules
+
+        mock_data = {"emitters": []}
+
+        with patch("unreal_niagara_mcp.inspection.module_tools._call_plugin", return_value=mock_data):
+            result = get_niagara_modules("/Game/VFX/NS_Fire")
+
+        assert "No modules found" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.inspection.module_tools import get_niagara_modules
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        with patch("unreal_niagara_mcp.inspection.module_tools._call_plugin", side_effect=EditorNotRunning("No editor")):
+            result = get_niagara_modules("/Game/VFX/NS_Fire")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# get_module_inputs
+# ---------------------------------------------------------------------------
+
+
+class TestGetModuleInputs:
+
+    def test_returns_formatted_input_table(self):
+        from unreal_niagara_mcp.inspection.module_tools import get_module_inputs
+
+        mock_data = {
+            "inputs": [
+                {"name": "Gravity Strength", "type": "Float", "value": "980.0", "default": "980.0"},
+                {"name": "Apply Drag", "type": "Bool", "value": "True", "default": "False"},
+            ],
+        }
+
+        with patch("unreal_niagara_mcp.inspection.module_tools._call_plugin", return_value=mock_data):
+            result = get_module_inputs("/Game/VFX/NS_Fire", "Flames", "Gravity Force")
+
+        assert "Gravity Strength" in result
+        assert "Float" in result
+        assert "980.0" in result
+        assert "Apply Drag" in result
+
+    def test_handles_no_inputs(self):
+        from unreal_niagara_mcp.inspection.module_tools import get_module_inputs
+
+        mock_data = {"inputs": []}
+
+        with patch("unreal_niagara_mcp.inspection.module_tools._call_plugin", return_value=mock_data):
+            result = get_module_inputs("/Game/VFX/NS_Fire", "Flames", "Empty Module")
+
+        assert "No inputs found" in result
+
+
+# ---------------------------------------------------------------------------
+# get_niagara_parameters
+# ---------------------------------------------------------------------------
+
+
+class TestGetNiagaraParameters:
+
+    def test_returns_grouped_parameters(self):
+        from unreal_niagara_mcp.inspection.parameter_tools import get_niagara_parameters
+
+        mock_data = {
+            "namespaces": {
+                "Particles": [
+                    {"name": "Particles.Position", "type": "Vector", "value": "(0,0,0)"},
+                    {"name": "Particles.Velocity", "type": "Vector", "value": ""},
+                ],
+                "User": [
+                    {"name": "User.SpawnRate", "type": "Float", "value": "100.0"},
+                ],
+            },
+        }
+
+        with patch("unreal_niagara_mcp.inspection.parameter_tools._call_plugin", return_value=mock_data):
+            result = get_niagara_parameters("/Game/VFX/NS_Fire")
+
+        assert "Particles (2 parameter(s))" in result
+        assert "User (1 parameter(s))" in result
+        assert "Particles.Position (Vector) = (0,0,0)" in result
+        assert "User.SpawnRate (Float) = 100.0" in result
+
+    def test_handles_no_parameters(self):
+        from unreal_niagara_mcp.inspection.parameter_tools import get_niagara_parameters
+
+        mock_data = {"namespaces": {}}
+
+        with patch("unreal_niagara_mcp.inspection.parameter_tools._call_plugin", return_value=mock_data):
+            result = get_niagara_parameters("/Game/VFX/NS_Fire")
+
+        assert "No parameters found" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.inspection.parameter_tools import get_niagara_parameters
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        with patch("unreal_niagara_mcp.inspection.parameter_tools._call_plugin", side_effect=EditorNotRunning("No editor")):
+            result = get_niagara_parameters("/Game/VFX/NS_Fire")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# get_niagara_user_parameters
+# ---------------------------------------------------------------------------
+
+
+class TestGetNiagaraUserParameters:
+
+    def test_returns_formatted_user_params(self):
+        from unreal_niagara_mcp.inspection.parameter_tools import get_niagara_user_parameters
+
+        mock_data = {
+            "parameters": [
+                {"name": "User.SpawnRate", "type": "Float", "default": "100.0"},
+                {"name": "User.Color", "type": "LinearColor", "default": "(1,0,0,1)"},
+            ],
+        }
+
+        with patch("unreal_niagara_mcp.inspection.parameter_tools._call_plugin", return_value=mock_data):
+            result = get_niagara_user_parameters("/Game/VFX/NS_Fire")
+
+        assert "User.SpawnRate" in result
+        assert "Float" in result
+        assert "100.0" in result
+        assert "LinearColor" in result
+
+    def test_handles_no_user_params(self):
+        from unreal_niagara_mcp.inspection.parameter_tools import get_niagara_user_parameters
+
+        mock_data = {"parameters": []}
+
+        with patch("unreal_niagara_mcp.inspection.parameter_tools._call_plugin", return_value=mock_data):
+            result = get_niagara_user_parameters("/Game/VFX/NS_Fire")
+
+        assert "No user parameters found" in result
+
+
+# ---------------------------------------------------------------------------
+# get_data_interfaces
+# ---------------------------------------------------------------------------
+
+
+class TestGetDataInterfaces:
+
+    def test_returns_formatted_di_list(self):
+        from unreal_niagara_mcp.inspection.data_interface_tools import get_data_interfaces
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [
+                {
+                    "name": "Flames",
+                    "data_interfaces": [
+                        {"class": "NiagaraDataInterfaceCurve", "name": "SpawnRateCurve", "stage": "emitter_update"},
+                        {"class": "NiagaraDataInterfaceSkeletalMesh", "name": "", "stage": "particle_spawn"},
+                    ],
+                },
+            ],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.data_interface_tools._get_bridge", return_value=mock_bridge):
+            result = get_data_interfaces("/Game/VFX/NS_Fire")
+
+        assert "NiagaraDataInterfaceCurve" in result
+        assert "SpawnRateCurve" in result
+        assert "NiagaraDataInterfaceSkeletalMesh" in result
+        assert "Total: 2 data interface(s)" in result
+
+    def test_handles_no_data_interfaces(self):
+        from unreal_niagara_mcp.inspection.data_interface_tools import get_data_interfaces
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [{"name": "Empty", "data_interfaces": []}],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.data_interface_tools._get_bridge", return_value=mock_bridge):
+            result = get_data_interfaces("/Game/VFX/NS_Fire")
+
+        assert "Total: 0 data interface(s)" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.inspection.data_interface_tools import get_data_interfaces
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.side_effect = EditorNotRunning("No editor")
+
+        with patch("unreal_niagara_mcp.inspection.data_interface_tools._get_bridge", return_value=mock_bridge):
+            result = get_data_interfaces("/Game/VFX/NS_Fire")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# get_niagara_events
+# ---------------------------------------------------------------------------
+
+
+class TestGetNiagaraEvents:
+
+    def test_returns_formatted_event_list(self):
+        from unreal_niagara_mcp.inspection.event_tools import get_niagara_events
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [
+                {
+                    "name": "Sparks",
+                    "events": [
+                        {
+                            "index": 0,
+                            "source_event_name": "CollisionEvent",
+                            "script_name": "ReceiveCollisionEvent",
+                            "execution_mode": "SpawnedParticles",
+                            "spawn_number": 5,
+                            "max_events_per_frame": 0,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.event_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_events("/Game/VFX/NS_Fire")
+
+        assert "CollisionEvent" in result
+        assert "SpawnedParticles" in result
+        assert "Spawn Number: 5" in result
+
+    def test_handles_no_events(self):
+        from unreal_niagara_mcp.inspection.event_tools import get_niagara_events
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [{"name": "Flames", "events": []}],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.event_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_events("/Game/VFX/NS_Fire")
+
+        assert "No event handlers found" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.inspection.event_tools import get_niagara_events
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.side_effect = EditorNotRunning("No editor")
+
+        with patch("unreal_niagara_mcp.inspection.event_tools._get_bridge", return_value=mock_bridge):
+            result = get_niagara_events("/Game/VFX/NS_Fire")
+
+        assert "Editor not available" in result
+
+
+# ---------------------------------------------------------------------------
+# get_simulation_stages
+# ---------------------------------------------------------------------------
+
+
+class TestGetSimulationStages:
+
+    def test_returns_formatted_sim_stages(self):
+        from unreal_niagara_mcp.inspection.sim_stage_tools import get_simulation_stages
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [
+                {
+                    "name": "Fluid",
+                    "simulation_stages": [
+                        {
+                            "index": 0,
+                            "simulation_stage_name": "PressureSolve",
+                            "iteration_source": "DataInterface",
+                            "num_iterations": 8,
+                            "execute_before": False,
+                            "enabled": True,
+                            "data_interface": "NiagaraDataInterfaceGrid3D",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.sim_stage_tools._get_bridge", return_value=mock_bridge):
+            result = get_simulation_stages("/Game/VFX/NS_Fire")
+
+        assert "PressureSolve" in result
+        assert "DataInterface" in result
+        assert "Iterations: 8" in result
+        assert "NiagaraDataInterfaceGrid3D" in result
+
+    def test_handles_no_sim_stages(self):
+        from unreal_niagara_mcp.inspection.sim_stage_tools import get_simulation_stages
+
+        mock_data = {
+            "asset_path": "/Game/VFX/NS_Fire",
+            "emitters": [{"name": "Simple", "simulation_stages": []}],
+        }
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.return_value = _make_bridge_result(mock_data)
+
+        with patch("unreal_niagara_mcp.inspection.sim_stage_tools._get_bridge", return_value=mock_bridge):
+            result = get_simulation_stages("/Game/VFX/NS_Fire")
+
+        assert "No simulation stages found" in result
+
+    def test_handles_editor_not_running(self):
+        from unreal_niagara_mcp.inspection.sim_stage_tools import get_simulation_stages
+        from unreal_niagara_mcp.editor_bridge import EditorNotRunning
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_command.side_effect = EditorNotRunning("No editor")
+
+        with patch("unreal_niagara_mcp.inspection.sim_stage_tools._get_bridge", return_value=mock_bridge):
+            result = get_simulation_stages("/Game/VFX/NS_Fire")
+
+        assert "Editor not available" in result

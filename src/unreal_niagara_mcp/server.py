@@ -94,6 +94,41 @@ def _call_plugin(lib_class: str, func_name: str, **kwargs: str) -> dict:
         return {"error": True, "message": f"Invalid JSON from plugin: {output[:500]}"}
 
 
+def _call_plugin_raw(lib_class: str, func_name: str, **kwargs: str) -> str | dict:
+    """Like _call_plugin but returns raw parsed output for array results.
+
+    Use this when the C++ function returns a JSON array (starting with '[')
+    since _call_plugin only looks for '{' as JSON start.
+    """
+    bridge = _get_bridge()
+    args = ", ".join(f'{k}="{_escape_py_string(v)}"' for k, v in kwargs.items())
+    command = (
+        "import unreal, json\n"
+        f"result = unreal.{lib_class}.{func_name}({args})\n"
+        "print(result)"
+    )
+    result = bridge.run_command(command, exec_mode="ExecuteFile")
+    if not result.get("success", False):
+        return {"error": True, "message": result.get("result", "Command failed")}
+    raw_output = result.get("output", "")
+    if isinstance(raw_output, list):
+        parts = []
+        for item in raw_output:
+            if isinstance(item, dict):
+                parts.append(item.get("output", str(item)))
+            else:
+                parts.append(str(item))
+        output = "\n".join(parts).strip()
+    else:
+        output = str(raw_output).strip()
+    if not output:
+        output = str(result.get("result", "")).strip()
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        return {"error": True, "message": f"Invalid JSON: {output[:500]}"}
+
+
 def _format_error(data: dict) -> str | None:
     """Return error message if data is an error response, else None."""
     if data.get("error"):
@@ -104,6 +139,30 @@ def _format_error(data: dict) -> str | None:
 # -- Register tool modules ---------------------------------------------------
 
 import unreal_niagara_mcp.inspection.system_tools  # noqa: E402, F401
+import unreal_niagara_mcp.inspection.renderer_tools  # noqa: E402, F401
+import unreal_niagara_mcp.inspection.module_tools  # noqa: E402, F401
+import unreal_niagara_mcp.inspection.parameter_tools  # noqa: E402, F401
+import unreal_niagara_mcp.inspection.data_interface_tools  # noqa: E402, F401
+import unreal_niagara_mcp.inspection.event_tools  # noqa: E402, F401
+import unreal_niagara_mcp.inspection.sim_stage_tools  # noqa: E402, F401
+import unreal_niagara_mcp.editing.parameter_editing  # noqa: E402, F401
+import unreal_niagara_mcp.editing.module_editing  # noqa: E402, F401
+import unreal_niagara_mcp.editing.emitter_editing  # noqa: E402, F401
+import unreal_niagara_mcp.editing.system_editing  # noqa: E402, F401
+import unreal_niagara_mcp.editing.batch  # noqa: E402, F401
+import unreal_niagara_mcp.search.search_tools  # noqa: E402, F401
+import unreal_niagara_mcp.search.discovery_tools  # noqa: E402, F401
+import unreal_niagara_mcp.creation.creation_tools  # noqa: E402, F401
+import unreal_niagara_mcp.procedural.hlsl_tools  # noqa: E402, F401
+import unreal_niagara_mcp.procedural.curve_tools  # noqa: E402, F401
+import unreal_niagara_mcp.procedural.system_gen_tools  # noqa: E402, F401
+import unreal_niagara_mcp.procedural.distribution_tools  # noqa: E402, F401
+import unreal_niagara_mcp.procedural.variation_tools  # noqa: E402, F401
+import unreal_niagara_mcp.analysis.stats_tools  # noqa: E402, F401
+import unreal_niagara_mcp.analysis.audit_tools  # noqa: E402, F401
+import unreal_niagara_mcp.analysis.summary_tools  # noqa: E402, F401
+import unreal_niagara_mcp.analysis.hlsl_output_tools  # noqa: E402, F401
+import unreal_niagara_mcp.analysis.dream_tools  # noqa: E402, F401
 
 
 # -- Entry point -------------------------------------------------------------
