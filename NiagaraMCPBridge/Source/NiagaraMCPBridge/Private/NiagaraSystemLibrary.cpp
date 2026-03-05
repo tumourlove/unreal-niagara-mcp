@@ -98,7 +98,7 @@ FString UNiagaraMCPSystemLibrary::AddEmitter(const FString& SystemPath, const FS
 	System->Modify();
 
 	FName Name = EmitterName.IsEmpty() ? EmitterAsset->GetFName() : FName(*EmitterName);
-	FNiagaraEmitterHandle NewHandle = System->AddEmitterHandle(*EmitterAsset, Name);
+	FNiagaraEmitterHandle NewHandle = System->AddEmitterHandle(*EmitterAsset, Name, EmitterAsset->GetExposedVersion());
 
 	GEditor->EndTransaction();
 
@@ -201,8 +201,7 @@ bool UNiagaraMCPSystemLibrary::SetEmitterEnabled(const FString& SystemPath, cons
 		return false;
 	}
 
-	// GetEmitterHandles returns const ref, we need mutable access
-	TArray<FNiagaraEmitterHandle>& Handles = const_cast<TArray<FNiagaraEmitterHandle>&>(System->GetEmitterHandles());
+	TArray<FNiagaraEmitterHandle>& Handles = System->GetEmitterHandles();
 	FNiagaraEmitterHandle& Handle = Handles[Index];
 
 	GEditor->BeginTransaction(NSLOCTEXT("NiagaraMCP", "SetEmitterEnabled", "Set Emitter Enabled"));
@@ -258,7 +257,7 @@ bool UNiagaraMCPSystemLibrary::ReorderEmitters(const FString& SystemPath, const 
 	System->Modify();
 
 	// Replace the emitter handles array
-	TArray<FNiagaraEmitterHandle>& MutableHandles = const_cast<TArray<FNiagaraEmitterHandle>&>(System->GetEmitterHandles());
+	TArray<FNiagaraEmitterHandle>& MutableHandles = System->GetEmitterHandles();
 	MutableHandles = MoveTemp(NewOrder);
 
 	GEditor->EndTransaction();

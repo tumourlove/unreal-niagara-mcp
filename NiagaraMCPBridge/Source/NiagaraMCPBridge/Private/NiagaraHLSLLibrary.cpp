@@ -61,34 +61,32 @@ FString UNiagaraMCPHLSLLibrary::GetCompiledGPUHLSL(const FString& SystemPath, co
 		UE_LOG(LogNiagaraMCPHLSL, Warning, TEXT("GetCompiledGPUHLSL: system has outstanding compilation requests, results may be stale"));
 	}
 
-	// Access the compiled data to extract the HLSL source
-	const TArray<uint8>& ByteCode = GPUScript->GetScriptByteCode();
-	if (ByteCode.Num() == 0)
-	{
-		UE_LOG(LogNiagaraMCPHLSL, Warning, TEXT("GetCompiledGPUHLSL: no compiled bytecode available, trying HLSL output"));
-	}
-
-	// The compiled HLSL is stored in the script's last compile status / generated HLSL
-	// Access via the VM executable data or the generated HLSL debug output
 	FString HLSL;
 
-	// Try to get HLSL from the compile results
+#if WITH_EDITORONLY_DATA
 	const FNiagaraVMExecutableData& ExeData = GPUScript->GetVMExecutableData();
-	if (!ExeData.LastHlslTranslation.IsEmpty())
+	if (!ExeData.LastHlslTranslationGPU.IsEmpty())
 	{
+		HLSL = ExeData.LastHlslTranslationGPU;
+	}
+	else if (!ExeData.LastHlslTranslation.IsEmpty())
+	{
+		UE_LOG(LogNiagaraMCPHLSL, Warning, TEXT("GPU HLSL not available, returning VM HLSL"));
 		HLSL = ExeData.LastHlslTranslation;
 	}
 	else if (!ExeData.LastAssemblyTranslation.IsEmpty())
 	{
-		// Fallback: return assembly if HLSL not available
-		UE_LOG(LogNiagaraMCPHLSL, Warning, TEXT("GetCompiledGPUHLSL: HLSL not available, returning assembly translation"));
+		UE_LOG(LogNiagaraMCPHLSL, Warning, TEXT("HLSL not available, returning assembly"));
 		HLSL = ExeData.LastAssemblyTranslation;
 	}
 	else
 	{
-		UE_LOG(LogNiagaraMCPHLSL, Error, TEXT("GetCompiledGPUHLSL: no compiled HLSL or assembly available. Ensure the system is compiled."));
-		return FString(TEXT("ERROR: No compiled HLSL available. Call RequestCompile first."));
+		UE_LOG(LogNiagaraMCPHLSL, Error, TEXT("No compiled HLSL available. Call RequestCompile first."));
+		return FString(TEXT("ERROR: No compiled HLSL available."));
 	}
+#else
+	return FString(TEXT("ERROR: HLSL only available in editor builds."));
+#endif
 
 	UE_LOG(LogNiagaraMCPHLSL, Log, TEXT("Retrieved %d characters of GPU HLSL for emitter '%s'"),
 		HLSL.Len(), *EmitterHandleId);
